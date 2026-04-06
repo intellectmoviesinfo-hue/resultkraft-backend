@@ -4,9 +4,7 @@ services:
     runtime: python
     region: singapore          # Closest to India
     plan: starter              # $7/month — never sleeps (free tier sleeps after 15min)
-    buildCommand: |
-      apt-get install -y poppler-utils &&
-      pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: python run.py
     healthCheckPath: /health
     envVars:
