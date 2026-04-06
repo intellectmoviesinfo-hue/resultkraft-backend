@@ -16,10 +16,11 @@ sys.path.insert(0, backend_dir)
 import uvicorn
 
 if __name__ == "__main__":
+    is_dev = os.environ.get("ENVIRONMENT", "development") != "production"
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
-        reload_dirs=[backend_dir],
+        reload=is_dev,
+        reload_dirs=[backend_dir] if is_dev else None,
     )
