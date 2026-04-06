@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments — NEVER COMMIT
+venv/
+env/
+.venv/
+.env/
+
+# Environment variables — NEVER COMMIT THESE
+.env
+.env.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Uploads (temp files)
+uploads/
+temp/
+*.pdf
+*.xlsx
+*.csv

@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: resultkraft-backend
+    runtime: python
+    region: singapore          # Closest to India
+    plan: starter              # $7/month — never sleeps (free tier sleeps after 15min)
+    buildCommand: |
+      apt-get install -y poppler-utils &&
+      pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: SUPABASE_URL
+        sync: false            # You fill this in Render dashboard
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: resultkraft-uploads
+      - key: FRONTEND_URL
+        value: https://resultkraft.pages.dev
