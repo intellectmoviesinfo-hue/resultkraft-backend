@@ -60,3 +60,13 @@ def validate_upload(filename: str, content: bytes) -> str:
             "The file may be corrupted or misnamed."
         )
     return ext
+
+
+def sanitize_filename(name: str) -> str:
+    """Remove path traversal characters and limit length."""
+    import re
+    # Take only the basename (no directory traversal)
+    name = os.path.basename(name)
+    # Remove any non-alphanumeric chars except dots, hyphens, underscores, spaces
+    name = re.sub(r'[^\w\s\-.]', '', name)
+    return name[:255] if name else "unnamed_file"

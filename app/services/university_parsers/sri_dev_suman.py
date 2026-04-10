@@ -86,6 +86,7 @@ class SriDevSumanParser(BaseUniversityParser):
             subject_name = re.sub(r'\s+', ' ', subject_name).strip()
             if len(subject_name) < 2:
                 continue
+            subject_name = self.normalize_subject_name(subject_name)
 
             subjects[subject_name] = SubjectMarks(
                 ext_marks=ext,

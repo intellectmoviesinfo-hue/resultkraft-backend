@@ -1,62 +1,17 @@
 """
 Core PDF extraction engine.
-Uses pdfplumber as primary, with subprocess pdftotext as fallback.
-Handles text-based PDFs from Indian university result sheets.
+Uses pdfplumber for text-based PDFs from Indian university result sheets.
 """
-
-import re
-import subprocess
 import tempfile
 import os
+import signal
 from typing import Optional
 
 import pdfplumber
 
 
-def extract_text_pdfplumber(pdf_path: str) -> str:
-    text_parts = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text(
-                x_tolerance=3,
-                y_tolerance=3,
-            )
-            if page_text:
-                text_parts.append(page_text)
-            text_parts.append("\f")  # Form feed between pages
-    return "".join(text_parts)
-
-
-def extract_text_pdftotext(pdf_path: str) -> Optional[str]:
-    try:
-        result = subprocess.run(
-            ["pdftotext", "-layout", pdf_path, "-"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return None
-
-
-def extract_pdf_text(pdf_path: str) -> str:
-    # Try pdftotext first (faster, preserves layout better)
-    text = extract_text_pdftotext(pdf_path)
-    if text and len(text.strip()) > 50:
-        return text
-
-    # Fallback to pdfplumber
-    text = extract_text_pdfplumber(pdf_path)
-    if text and len(text.strip()) > 50:
-        return text
-
-    raise ValueError(
-        "Could not extract text from PDF. "
-        "The file may be scanned/image-based or corrupted."
-    )
+MAX_PAGES = 500
+PAGE_TIMEOUT_SECONDS = 10
 
 
 def extract_pdf_text_from_bytes(content: bytes) -> str:
@@ -64,6 +19,33 @@ def extract_pdf_text_from_bytes(content: bytes) -> str:
         tmp.write(content)
         tmp_path = tmp.name
     try:
-        return extract_pdf_text(tmp_path)
+        return _extract_text(tmp_path)
     finally:
         os.unlink(tmp_path)
+
+
+def _extract_text(pdf_path: str) -> str:
+    text_parts = []
+    with pdfplumber.open(pdf_path) as pdf:
+        if len(pdf.pages) > MAX_PAGES:
+            raise ValueError(
+                f"PDF has {len(pdf.pages)} pages (max {MAX_PAGES}). "
+                "Please upload a smaller file."
+            )
+
+        for page in pdf.pages:
+            try:
+                page_text = page.extract_text(x_tolerance=3, y_tolerance=3)
+                if page_text:
+                    text_parts.append(page_text)
+            except Exception:
+                continue  # Skip pages that fail to parse
+            text_parts.append("\f")
+
+    full_text = "".join(text_parts)
+    if len(full_text.strip()) < 50:
+        raise ValueError(
+            "Could not extract text from PDF. "
+            "The file may be scanned/image-based or corrupted."
+        )
+    return full_text

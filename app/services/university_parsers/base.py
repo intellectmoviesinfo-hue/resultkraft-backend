@@ -119,3 +119,26 @@ class BaseUniversityParser(ABC):
         if total < self.pass_mark:
             return "FAIL"
         return "PASS"
+
+    @staticmethod
+    def normalize_subject_name(name: str) -> str:
+        """Fix common university typos and normalize subject names."""
+        corrections = {
+            "BRITISH POERTY": "BRITISH POETRY",
+            "BRITSH POETRY": "BRITISH POETRY",
+            "MANAGMENT": "MANAGEMENT",
+            "ADMINSTRATION": "ADMINISTRATION",
+            "GEOGRAPY": "GEOGRAPHY",
+            "ECNOMICS": "ECONOMICS",
+            "POLITCAL": "POLITICAL",
+            "SCIENSE": "SCIENCE",
+            "MATHAMATICS": "MATHEMATICS",
+            "ENVIROMENT": "ENVIRONMENT",
+        }
+        cleaned = " ".join(name.strip().split())
+        upper = cleaned.upper()
+        for typo, fix in corrections.items():
+            if typo in upper:
+                upper = upper.replace(typo, fix)
+        # Title case the result
+        return upper.title()
