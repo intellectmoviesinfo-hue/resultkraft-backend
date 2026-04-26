@@ -33,10 +33,13 @@ async def get_current_user(
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         supabase_url = _get_supabase_url()
 
+        # Supabase issues ES256 on projects created after Aug 2024 (asymmetric ECC),
+        # RS256 on some intermediate projects, and HS256 on legacy. JWKS only serves
+        # the asymmetric ones, so HS256 doesn't reach this branch.
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=["RS256"],
+            algorithms=["ES256", "RS256"],
             audience="authenticated",
             issuer=f"{supabase_url}/auth/v1",
             options={"verify_exp": True},
