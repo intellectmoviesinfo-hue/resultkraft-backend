@@ -53,14 +53,17 @@ async def limit_body_size(request: Request, call_next):
 # Rate limiting
 app.add_middleware(RateLimitMiddleware)
 
-# CORS
+# CORS — explicit allowlist; envvar `frontend_url` for dev override
 settings = get_settings()
+_cors_allow = list({
+    settings.frontend_url,
+    "https://resultkraft-frontend.vercel.app",
+    "http://localhost:3000",
+})
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        settings.frontend_url,
-        "http://localhost:3000",
-    ],
+    allow_origins=_cors_allow,
+    allow_origin_regex=r"https://resultkraft-frontend-[a-z0-9]+\.vercel\.app",  # preview deploys
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],

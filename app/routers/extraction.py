@@ -18,9 +18,62 @@ from app.services.reports.pdf_report import (
     generate_ranked_pdf,
     generate_all_reports_zip,
 )
+from app.services.supabase_client import get_supabase
 from app.utils.auth import get_user_id
 
+import logging
+
+logger = logging.getLogger("resultkraft.extraction")
+
 router = APIRouter()
+
+
+def _persist_extraction(user_id: str, extraction_id: str, filename: str, result: ExtractionResponse) -> None:
+    """
+    Insert extraction + student_results rows into Supabase.
+    Service-role client bypasses RLS. Failures are logged but never break the user request.
+    """
+    sb = get_supabase()
+    if sb is None:
+        return  # DB unavailable — already persisted in cache, user still gets results
+    try:
+        sb.table("extractions").insert({
+            "id": extraction_id,
+            "user_id": user_id,
+            "filename": filename,
+            "file_type": result.file_type or "pdf",
+            "university_detected": result.university_detected,
+            "subject_selected": result.subject_selected,
+            "subjects_found": list(result.subjects_found or []),
+            "student_count": len(result.students or []),
+            "pass_count": (result.analytics.pass_count if result.analytics else 0) or 0,
+            "fail_count": (result.analytics.fail_count if result.analytics else 0) or 0,
+            "pass_percentage": float(result.analytics.pass_percentage) if (result.analytics and result.analytics.pass_percentage is not None) else None,
+            "average_marks": float(result.analytics.average_marks) if (result.analytics and result.analytics.average_marks is not None) else None,
+            "status": result.status or "completed",
+        }).execute()
+
+        if result.students:
+            rows = [{
+                "extraction_id": extraction_id,
+                "roll_number": s.roll_no or "",
+                "student_name": getattr(s, "student_name", None),
+                "father_name": getattr(s, "father_name", None),
+                "subject_name": getattr(s, "subject_name", None),
+                "external_marks": float(s.external_marks) if getattr(s, "external_marks", None) is not None else None,
+                "internal_marks": float(s.internal_marks) if getattr(s, "internal_marks", None) is not None else None,
+                "total_marks": float(s.total_marks) if s.total_marks is not None else None,
+                "max_marks": float(s.max_marks) if getattr(s, "max_marks", None) is not None else None,
+                "grade": getattr(s, "grade", None),
+                "status": getattr(s, "status", None),
+                "rank_in_class": getattr(s, "rank_in_class", None),
+                "percentile": float(s.percentile) if getattr(s, "percentile", None) is not None else None,
+            } for s in result.students]
+            # Bulk insert in chunks of 500 to stay under request size limits
+            for i in range(0, len(rows), 500):
+                sb.table("student_results").insert(rows[i:i+500]).execute()
+    except Exception as e:
+        logger.warning(f"Supabase persistence failed for extraction {extraction_id}: {e}")
 
 
 # Bounded LRU cache — max 200 entries, evicts oldest on overflow
@@ -64,6 +117,7 @@ async def extract_file(
         extraction_id = str(uuid.uuid4())
         result.extraction_id = extraction_id
         _cache.set(_cache_key(user_id, extraction_id), result)
+        _persist_extraction(user_id, extraction_id, filename, result)
         return result
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -128,6 +182,7 @@ async def extract_batch(
         processing_time_ms=total_time,
     )
     _cache.set(_cache_key(user_id, extraction_id), response)
+    _persist_extraction(user_id, extraction_id, response.original_filename or "batch", response)
     return response
 
 
