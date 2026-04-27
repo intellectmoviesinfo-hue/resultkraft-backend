@@ -49,8 +49,9 @@ def _persist_extraction(user_id: str, extraction_id: str, filename: str, result:
             "pass_count": (result.analytics.pass_count if result.analytics else 0) or 0,
             "fail_count": (result.analytics.fail_count if result.analytics else 0) or 0,
             "pass_percentage": float(result.analytics.pass_percentage) if (result.analytics and result.analytics.pass_percentage is not None) else None,
-            "average_marks": float(result.analytics.average_marks) if (result.analytics and result.analytics.average_marks is not None) else None,
+            "average_marks": float(result.analytics.class_average) if (result.analytics and getattr(result.analytics, "class_average", None) is not None) else None,
             "status": result.status or "completed",
+            "metadata": result.metadata or {},
         }).execute()
 
         if result.students:
@@ -103,19 +104,64 @@ def _cache_key(user_id: str, extraction_id: str) -> str:
     return f"{user_id}:{extraction_id}"
 
 
+def _build_metadata(
+    college: Optional[str],
+    department: Optional[str],
+    course_level: Optional[str],
+    semester: Optional[str],
+    session: Optional[str],
+    exam_type: Optional[str],
+    faculty_name: Optional[str],
+    marking_scheme: Optional[str],
+    instructions: Optional[str],
+) -> dict:
+    """Strip empties and assemble the metadata dict that gets persisted + injected into reports."""
+    md = {
+        "college": (college or "").strip(),
+        "department": (department or "").strip(),
+        "course_level": (course_level or "").strip(),
+        "semester": (semester or "").strip(),
+        "session": (session or "").strip(),
+        "exam_type": (exam_type or "").strip(),
+        "faculty_name": (faculty_name or "").strip(),
+        "marking_scheme": (marking_scheme or "").strip(),
+        "instructions": (instructions or "").strip(),
+    }
+    return {k: v for k, v in md.items() if v}
+
+
 @router.post("/extract", response_model=ExtractionResponse)
 async def extract_file(
     file: UploadFile = File(...),
     subject: Optional[str] = Form(None),
+    marking_scheme: Optional[str] = Form(None),
+    college: Optional[str] = Form(None),
+    department: Optional[str] = Form(None),
+    course_level: Optional[str] = Form(None),
+    semester: Optional[str] = Form(None),
+    session: Optional[str] = Form(None),
+    exam_type: Optional[str] = Form(None),
+    faculty_name: Optional[str] = Form(None),
+    instructions: Optional[str] = Form(None),
     user_id: str = Depends(get_user_id),
 ):
     content = await file.read()
     filename = sanitize_filename(file.filename or "unnamed")
 
+    metadata = _build_metadata(
+        college, department, course_level, semester, session,
+        exam_type, faculty_name, marking_scheme, instructions,
+    )
+
     try:
-        result = process_file(filename, content, subject_filter=subject)
+        result = process_file(
+            filename, content,
+            subject_filter=subject,
+            marking_scheme=marking_scheme,
+        )
         extraction_id = str(uuid.uuid4())
         result.extraction_id = extraction_id
+        result.metadata = metadata
         _cache.set(_cache_key(user_id, extraction_id), result)
         _persist_extraction(user_id, extraction_id, filename, result)
         return result
@@ -127,11 +173,25 @@ async def extract_file(
 async def extract_batch(
     files: List[UploadFile] = File(...),
     subject: Optional[str] = Form(None),
+    marking_scheme: Optional[str] = Form(None),
+    college: Optional[str] = Form(None),
+    department: Optional[str] = Form(None),
+    course_level: Optional[str] = Form(None),
+    semester: Optional[str] = Form(None),
+    session: Optional[str] = Form(None),
+    exam_type: Optional[str] = Form(None),
+    faculty_name: Optional[str] = Form(None),
+    instructions: Optional[str] = Form(None),
     user_id: str = Depends(get_user_id),
 ):
     """Process multiple files and merge results."""
     if len(files) > 5:
         raise HTTPException(400, "Maximum 5 files per batch upload")
+
+    metadata = _build_metadata(
+        college, department, course_level, semester, session,
+        exam_type, faculty_name, marking_scheme, instructions,
+    )
 
     all_students = []
     all_subjects = set()
@@ -142,7 +202,11 @@ async def extract_batch(
         content = await upload.read()
         filename = sanitize_filename(upload.filename or "unnamed")
         try:
-            result = process_file(filename, content, subject_filter=subject)
+            result = process_file(
+                filename, content,
+                subject_filter=subject,
+                marking_scheme=marking_scheme,
+            )
             all_students.extend(result.students)
             all_subjects.update(result.subjects_found)
             if result.university_detected and not university:
@@ -180,6 +244,7 @@ async def extract_batch(
         students=unique_students,
         analytics=analytics,
         processing_time_ms=total_time,
+        metadata=metadata,
     )
     _cache.set(_cache_key(user_id, extraction_id), response)
     _persist_extraction(user_id, extraction_id, response.original_filename or "batch", response)
@@ -268,6 +333,7 @@ async def download_excel(extraction_id: str, user_id: str = Depends(get_user_id)
         analytics=analytics,
         university_name=result.university_detected or "",
         subject_name=result.subject_selected or "",
+        metadata=result.metadata or {},
     )
 
     name = _safe_filename(f"{result.subject_selected or 'Report'}_Result_Analysis")
@@ -288,6 +354,7 @@ async def download_pdf_summary(extraction_id: str, user_id: str = Depends(get_us
         analytics=analytics,
         university_name=result.university_detected or "",
         subject_name=result.subject_selected or "",
+        metadata=result.metadata or {},
     )
 
     name = _safe_filename(f"Summary_RESULT_LIST_{result.subject_selected or 'Report'}")
@@ -308,6 +375,7 @@ async def download_pdf_rollwise(extraction_id: str, user_id: str = Depends(get_u
         analytics=analytics,
         university_name=result.university_detected or "",
         subject_name=result.subject_selected or "",
+        metadata=result.metadata or {},
     )
 
     name = _safe_filename(f"Roll_No_Wise_RESULT_LIST_{result.subject_selected or 'Report'}")
@@ -328,6 +396,7 @@ async def download_pdf_ranked(extraction_id: str, user_id: str = Depends(get_use
         analytics=analytics,
         university_name=result.university_detected or "",
         subject_name=result.subject_selected or "",
+        metadata=result.metadata or {},
     )
 
     name = _safe_filename(f"RANKED_RESULT_LIST_{result.subject_selected or 'Report'}")
@@ -335,6 +404,36 @@ async def download_pdf_ranked(extraction_id: str, user_id: str = Depends(get_use
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'},
+    )
+
+
+@router.get("/extract/{extraction_id}/download/csv")
+async def download_csv(extraction_id: str, user_id: str = Depends(get_user_id)):
+    """Plain CSV of student rows — Roll, Name, Father, Enrollment, Subject, Ext, Int, Total, Grade, Status, Rank, Percentile."""
+    import csv as _csv
+    result = _get_result_or_404(user_id, extraction_id)
+    sorted_students = sorted(result.students, key=lambda s: s.roll_no)
+
+    buf = io.StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow([
+        "Roll No", "Enrollment No", "Name", "Father's Name", "Subject",
+        "External", "Internal", "Total", "Grade", "Status", "Rank", "Percentile",
+    ])
+    for s in sorted_students:
+        writer.writerow([
+            s.roll_no, s.enrollment_no or "", s.student_name, s.father_name or "",
+            s.subject_name or "", s.ext_marks, s.int_marks, s.total_marks,
+            s.grade, s.pass_fail,
+            s.rank_in_class if s.rank_in_class is not None else "",
+            s.percentile if s.percentile is not None else "",
+        ])
+
+    name = _safe_filename(f"{result.subject_selected or 'Report'}_Result_Analysis")
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8-sig")),  # BOM so Excel opens cleanly with Hindi/Devanagari
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}.csv"'},
     )
 
 
@@ -348,6 +447,7 @@ async def download_all(extraction_id: str, user_id: str = Depends(get_user_id)):
         analytics=analytics,
         university_name=result.university_detected or "",
         subject_name=result.subject_selected or "",
+        metadata=result.metadata or {},
     )
 
     name = _safe_filename(f"{result.subject_selected or 'Report'}_Complete_Analysis")

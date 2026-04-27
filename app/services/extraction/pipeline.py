@@ -23,13 +23,14 @@ def process_file(
     filename: str,
     content: bytes,
     subject_filter: Optional[str] = None,
+    marking_scheme: Optional[str] = None,
 ) -> ExtractionResponse:
     start = time.time()
 
     ext = validate_upload(filename, content)
 
     if ext == ".pdf":
-        students, subjects, university = _process_pdf(content, subject_filter)
+        students, subjects, university = _process_pdf(content, subject_filter, marking_scheme)
     elif ext in (".xlsx", ".xls"):
         students, subjects, university = _process_excel(content, ext, subject_filter)
     elif ext == ".csv":
@@ -66,10 +67,12 @@ def process_file(
 
 
 def _process_pdf(
-    content: bytes, subject_filter: Optional[str]
+    content: bytes,
+    subject_filter: Optional[str],
+    marking_scheme: Optional[str] = None,
 ) -> tuple[list[ParsedStudent], list[str], str]:
     text = extract_pdf_text_from_bytes(content)
-    parser = detect_university(text)
+    parser = detect_university(text, marking_scheme=marking_scheme)
     students, subjects = parser.parse(text, subject_filter)
     return students, subjects, parser.name
 

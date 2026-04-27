@@ -38,6 +38,26 @@ class BaseUniversityParser(ABC):
     max_total: int = 100
     pass_mark: int = 33  # Minimum total marks to pass
 
+    def __init__(self, marking_scheme: Optional[str] = None):
+        """
+        marking_scheme: optional override like "75+25", "80+20", "70+30", "100+0"
+        Falls back to class defaults if missing or malformed.
+        """
+        if marking_scheme and "+" in marking_scheme:
+            try:
+                e_str, i_str = marking_scheme.split("+", 1)
+                ext = int(e_str.strip())
+                ints = int(i_str.strip())
+                if ext > 0 and (ext + ints) > 0:
+                    # Per-instance override; class attrs untouched
+                    self.max_ext = ext
+                    self.max_int = ints
+                    self.max_total = ext + ints
+                    # Pass mark = 33% of total, matching SDSU/UGC convention
+                    self.pass_mark = max(1, round(self.max_total * 0.33))
+            except (ValueError, AttributeError):
+                pass
+
     @classmethod
     def can_parse(cls, text: str) -> bool:
         text_upper = text.upper()

@@ -45,6 +45,7 @@ class ExtractionResponse(BaseModel):
     students: list[StudentRecord] = []
     analytics: Optional[AnalyticsSummary] = None
     processing_time_ms: int = 0
+    metadata: dict = Field(default_factory=dict)
 
 
 class SubjectSelectionRequest(BaseModel):

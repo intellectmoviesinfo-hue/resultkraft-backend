@@ -56,16 +56,36 @@ def generate_excel_report(
     analytics: AnalyticsSummary,
     university_name: str = "",
     subject_name: str = "",
+    metadata: dict | None = None,
 ) -> bytes:
     wb = Workbook()
+    metadata = metadata or {}
 
-    _create_summary_sheet(wb, analytics, university_name, subject_name)
-    _create_results_sheet(wb, students)
-    _create_ranked_sheet(wb, students)
+    _create_summary_sheet(wb, analytics, university_name, subject_name, metadata)
+    _create_results_sheet(wb, students, metadata)
+    _create_ranked_sheet(wb, students, metadata)
 
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+def _header_lines(university_name: str, subject_name: str, metadata: dict) -> list[str]:
+    """Return up to 4 stacked header lines built from metadata + detected fields."""
+    college = metadata.get("college") or university_name or ""
+    department = metadata.get("department") or ""
+    course = metadata.get("course_level") or ""
+    semester = metadata.get("semester") or ""
+    session = metadata.get("session") or ""
+    exam_type = metadata.get("exam_type") or ""
+    faculty = metadata.get("faculty_name") or ""
+
+    line1 = college.strip()
+    line2_bits = [b for b in (department, f"{course} {semester}".strip(), exam_type, session) if b and b.strip()]
+    line2 = "  |  ".join(line2_bits)
+    line3 = f"Subject: {subject_name}" if subject_name else ""
+    line4 = f"Faculty: {faculty}" if faculty else ""
+    return [l for l in (line1, line2, line3, line4) if l]
 
 
 def _create_summary_sheet(
@@ -73,25 +93,24 @@ def _create_summary_sheet(
     analytics: AnalyticsSummary,
     university_name: str,
     subject_name: str,
+    metadata: dict,
 ):
     ws = wb.active
     ws.title = "Summary Dashboard"
     ws.sheet_properties.tabColor = INDIGO
 
-    # Title
-    ws.merge_cells("A1:H1")
-    ws["A1"] = "ResultKraft - Exam Result Analysis"
-    ws["A1"].font = TITLE_FONT
-    ws["A1"].alignment = Alignment(horizontal="center")
+    lines = _header_lines(university_name, subject_name, metadata)
+    if not lines:
+        lines = ["ResultKraft - Exam Result Analysis"]
 
-    # Subtitle
-    ws.merge_cells("A2:H2")
-    ws["A2"] = f"{university_name} | {subject_name}" if subject_name else university_name
-    ws["A2"].font = SUBTITLE_FONT
-    ws["A2"].alignment = Alignment(horizontal="center")
+    for i, line in enumerate(lines, start=1):
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=8)
+        cell = ws.cell(row=i, column=1, value=line)
+        cell.font = TITLE_FONT if i == 1 else SUBTITLE_FONT
+        cell.alignment = Alignment(horizontal="center")
 
-    # Stats grid
-    row = 4
+    # Stats grid (start a row below the header block)
+    row = len(lines) + 3
     stats = [
         ("Total Students", analytics.total_students, INDIGO_LIGHT),
         ("Pass Count", analytics.pass_count, EMERALD_LIGHT),
@@ -160,9 +179,10 @@ def _create_summary_sheet(
         ws.cell(row=range_row, column=2, value=count).border = THIN_BORDER
 
 
-def _create_results_sheet(wb: Workbook, students: list[StudentRecord]):
+def _create_results_sheet(wb: Workbook, students: list[StudentRecord], metadata: dict | None = None):
     ws = wb.create_sheet("Student Results")
     ws.sheet_properties.tabColor = EMERALD
+    metadata = metadata or {}
 
     headers = [
         "Roll No", "Name", "Father's Name", "Enrollment No",
@@ -209,9 +229,10 @@ def _create_results_sheet(wb: Workbook, students: list[StudentRecord]):
     ws.freeze_panes = "A2"
 
 
-def _create_ranked_sheet(wb: Workbook, students: list[StudentRecord]):
+def _create_ranked_sheet(wb: Workbook, students: list[StudentRecord], metadata: dict | None = None):
     ws = wb.create_sheet("Ranked List")
     ws.sheet_properties.tabColor = GOLD
+    metadata = metadata or {}
 
     headers = [
         "Rank", "Name", "Roll No", "Total Marks",

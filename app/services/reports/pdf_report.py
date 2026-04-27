@@ -164,18 +164,31 @@ def _build_header_flowables(
     university_name: str,
     subject_name: str,
     report_type: str,
+    metadata: dict | None = None,
 ) -> list:
     """Return a list of Platypus flowables for the report header."""
+    metadata = metadata or {}
     elements: list = []
-    elements.append(Paragraph("ResultKraft", STYLE_TITLE))
 
-    parts = []
-    if university_name:
-        parts.append(university_name)
+    college = (metadata.get("college") or university_name or "ResultKraft").strip()
+    elements.append(Paragraph(college, STYLE_TITLE))
+
+    department = (metadata.get("department") or "").strip()
+    course = (metadata.get("course_level") or "").strip()
+    semester = (metadata.get("semester") or "").strip()
+    session = (metadata.get("session") or "").strip()
+    exam_type = (metadata.get("exam_type") or "").strip()
+    faculty = (metadata.get("faculty_name") or "").strip()
+
+    line2_bits = [b for b in (department, f"{course} {semester}".strip(), exam_type, session) if b]
+    if line2_bits:
+        elements.append(Paragraph("  |  ".join(line2_bits), STYLE_SUBTITLE))
+
     if subject_name:
-        parts.append(subject_name)
-    if parts:
-        elements.append(Paragraph(" | ".join(parts), STYLE_SUBTITLE))
+        elements.append(Paragraph(f"Subject: {subject_name}", STYLE_SUBTITLE))
+
+    if faculty:
+        elements.append(Paragraph(f"Faculty: {faculty}", STYLE_SUBTITLE))
 
     elements.append(
         Paragraph(report_type, ParagraphStyle(
@@ -234,6 +247,7 @@ def generate_summary_pdf(
     analytics: AnalyticsSummary,
     university_name: str = "",
     subject_name: str = "",
+    metadata: dict | None = None,
 ) -> bytes:
     """Generate a single-page summary PDF with result overview."""
     buffer = io.BytesIO()
@@ -252,7 +266,7 @@ def generate_summary_pdf(
 
     # -- Header -------------------------------------------------------
     elements.extend(
-        _build_header_flowables(university_name, subject_name, "Summary Report")
+        _build_header_flowables(university_name, subject_name, "Summary Report", metadata)
     )
 
     # -- Result Summary Table -----------------------------------------
@@ -332,6 +346,7 @@ def generate_rollwise_pdf(
     analytics: AnalyticsSummary,
     university_name: str = "",
     subject_name: str = "",
+    metadata: dict | None = None,
 ) -> bytes:
     """Generate a multi-page PDF with students sorted by roll number."""
     buffer = io.BytesIO()
@@ -350,7 +365,7 @@ def generate_rollwise_pdf(
 
     # -- Header -------------------------------------------------------
     elements.extend(
-        _build_header_flowables(university_name, subject_name, "Roll-wise Result Report")
+        _build_header_flowables(university_name, subject_name, "Roll-wise Result Report", metadata)
     )
 
     # -- Table --------------------------------------------------------
@@ -442,6 +457,7 @@ def generate_ranked_pdf(
     analytics: AnalyticsSummary,
     university_name: str = "",
     subject_name: str = "",
+    metadata: dict | None = None,
 ) -> bytes:
     """Generate a multi-page PDF with students sorted by total marks descending."""
     buffer = io.BytesIO()
@@ -460,7 +476,7 @@ def generate_ranked_pdf(
 
     # -- Header -------------------------------------------------------
     elements.extend(
-        _build_header_flowables(university_name, subject_name, "Ranked Result Report")
+        _build_header_flowables(university_name, subject_name, "Ranked Result Report", metadata)
     )
 
     # -- Table --------------------------------------------------------
@@ -572,14 +588,15 @@ def generate_all_reports_zip(
     analytics: AnalyticsSummary,
     university_name: str = "",
     subject_name: str = "",
+    metadata: dict | None = None,
 ) -> bytes:
     """Create a ZIP archive containing all four report files."""
     from app.services.reports.excel_report import generate_excel_report
 
-    summary_pdf = generate_summary_pdf(students, analytics, university_name, subject_name)
-    rollwise_pdf = generate_rollwise_pdf(students, analytics, university_name, subject_name)
-    ranked_pdf = generate_ranked_pdf(students, analytics, university_name, subject_name)
-    excel_bytes = generate_excel_report(students, analytics, university_name, subject_name)
+    summary_pdf = generate_summary_pdf(students, analytics, university_name, subject_name, metadata)
+    rollwise_pdf = generate_rollwise_pdf(students, analytics, university_name, subject_name, metadata)
+    ranked_pdf = generate_ranked_pdf(students, analytics, university_name, subject_name, metadata)
+    excel_bytes = generate_excel_report(students, analytics, university_name, subject_name, metadata)
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
