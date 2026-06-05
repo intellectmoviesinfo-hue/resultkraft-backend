@@ -129,6 +129,31 @@ class BaseUniversityParser(ABC):
                 return (e, n, t)
         return None
 
+    def find_absent_marks(self, line: str) -> Optional[tuple[float, float, float]]:
+        """
+        Handle "absent in external exam" rows where the external mark is the
+        literal token ``AB`` instead of a number, e.g.:
+
+            PRACTICAL TH DSC 1 1 AB 20 20 0.00 0.00 F
+            GEOMETRICAL FORMS STUDY (2D & 3D) PR GE 4 AB 19 19 0.00 0.00 F
+
+        The student sat only the internal assessment, so external = 0 and the
+        obtained total equals the internal mark. The number immediately after
+        ``AB`` is the internal mark.
+
+        Returns ``(0.0, internal, internal)`` or ``None``. Only fires when
+        ``AB`` appears as a standalone token directly followed by a number, so
+        it never matches an "AB" embedded inside a subject name (e.g. "LAB").
+        Callers should already have confirmed the line is a subject row.
+        """
+        m = re.search(r'\bAB\b\s+(\d+(?:\.\d+)?)', line)
+        if not m:
+            return None
+        internal = float(m.group(1))
+        if internal <= 0 or internal > self.max_int:
+            return None
+        return (0.0, internal, internal)
+
     def extract_grade(self, line: str) -> str:
         match = re.search(r'\b([A-F][+]?)\s*$', line.strip())
         if match:

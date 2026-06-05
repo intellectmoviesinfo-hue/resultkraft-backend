@@ -31,6 +31,14 @@ class SriDevSumanParser(BaseUniversityParser):
         r'^(?P<name>.+?)\s+(?P<paper>TH|PR)\s+(?P<course>DSC|GE|SEC|AEC|VAC)\b',
     )
 
+    # When a long subject name wraps onto the previous line, the paper type +
+    # course code + marks land on their own line with NO name prefix, e.g.:
+    #   "TH SEC 2 AB 20 20 0.00 0.00 F"
+    # We detect these "orphan" rows and recover the name from the line above.
+    _ORPHAN_TYPE_RE = re.compile(
+        r'^(?P<paper>TH|PR)\s+(?P<course>DSC|GE|SEC|AEC|VAC)\b',
+    )
+
     # Header rows we should never treat as subjects.
     _HEADER_PHRASES = (
         "max marks",
@@ -83,28 +91,41 @@ class SriDevSumanParser(BaseUniversityParser):
     def extract_subjects(self, card: str) -> dict[str, SubjectMarks]:
         subjects: dict[str, SubjectMarks] = {}
 
-        for raw_line in card.split("\n"):
-            line = raw_line.strip()
-            if not line:
-                continue
+        # Keep stripped, non-empty lines so a wrapped subject name on the line
+        # above an "orphan" type+marks row can be recovered (two-pass approach).
+        lines = [ln.strip() for ln in card.split("\n") if ln.strip()]
+
+        for idx, line in enumerate(lines):
             line_lower = line.lower()
             if any(p in line_lower for p in self._HEADER_PHRASES):
                 continue
 
+            # Decide the subject name and which line carries the marks.
             m = self._SUBJECT_LINE_RE.match(line)
-            if not m:
+            if m:
+                # Normal case: name + TH/PR + course all on this line.
+                subject_name = self._clean_subject_name(m.group("name"))
+                marks_line = line
+            elif self._ORPHAN_TYPE_RE.match(line):
+                # BUG 2: long name wrapped above; type + marks landed here alone.
+                prev = self._previous_name_line(lines, idx)
+                subject_name = self._clean_subject_name(prev) if prev else ""
+                marks_line = line
+            else:
                 continue
 
-            subject_name = self._clean_subject_name(m.group("name"))
             if not subject_name:
                 continue
 
-            triplet = self.find_marks_triplet(line)
+            # BUG 1: "absent in external" rows ("… AB <int> <int> …") never form a
+            # valid (ext, int, total) triplet, so check the AB pattern FIRST; the
+            # external mark is 0 and the total equals the internal assessment.
+            triplet = self.find_absent_marks(marks_line) or self.find_marks_triplet(marks_line)
             if not triplet:
-                # Likely an absent student row (AB 20 20 …) or a page-header artifact.
+                # Page-header artifact or unparseable row.
                 continue
             ext, internal, total = triplet
-            grade = self.extract_grade(line) or self._calculate_grade(total)
+            grade = self.extract_grade(marks_line) or self._calculate_grade(total)
 
             # SDSU rule: a printed "F" grade overrides any maths;
             # otherwise require both total ≥ pass_mark and ext ≥ 25/75 (theory qualifier).
@@ -124,6 +145,26 @@ class SriDevSumanParser(BaseUniversityParser):
             )
 
         return subjects
+
+    def _previous_name_line(self, lines: list[str], idx: int) -> Optional[str]:
+        """
+        Walk back up to 3 lines from ``idx`` to find the wrapped subject name that
+        belongs to an orphan type+marks row. Skips headers, the "Total" line, and
+        any line that is itself a subject/orphan row, and requires real letters
+        (Latin or Devanagari) so we never grab a stray numeric line.
+        """
+        for j in range(idx - 1, max(-1, idx - 4), -1):
+            cand = lines[j]
+            cl = cand.lower()
+            if any(p in cl for p in self._HEADER_PHRASES):
+                continue
+            if cl.startswith("total"):
+                continue
+            if self._SUBJECT_LINE_RE.match(cand) or self._ORPHAN_TYPE_RE.match(cand):
+                continue
+            if re.search(r"[A-Za-zऀ-ॿ]{3,}", cand):
+                return cand
+        return None
 
     def _clean_subject_name(self, raw: str) -> str:
         s = " ".join(raw.split())
